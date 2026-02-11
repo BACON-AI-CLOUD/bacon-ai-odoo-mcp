@@ -32,26 +32,26 @@ Built and maintained by [BACON-AI](https://bacon-ai.cloud) | Contact: [hello@bac
 
 ## Database DevOps Pipeline (Shift-Left Testing)
 
-> **Proven at scale.** This approach is adapted from BACON-AI founder Colin's shift-left test strategies deployed on large-scale international SAP programs, where separating development and maintenance landscapes prevented production defects across multi-country rollouts. The same discipline -- database isolation, regression gating, and promotion pipelines -- now powers AI-driven ERP testing.
+> **Proven at scale.** This approach is adapted from BACON-AI founder Colin Bacon's shift-left test strategies deployed on large-scale international SAP programs, where separating development and maintenance landscapes prevented production defects across multi-country rollouts. The same discipline -- database isolation, regression gating, and promotion pipelines -- now powers AI-driven ERP testing.
 
 Enterprise ERP changes are high-risk. A broken workflow in production means failed orders, blocked deliveries, and real revenue impact. The BACON-AI Odoo MCP Server brings a **Database DevOps Pipeline** that mirrors git branching -- every feature gets its own isolated database copy, tested independently before promotion through regression gates to production.
 
-### The Landscape Architecture
+### The System Landscape Architecture
 
 ```mermaid
 graph TB
     PROD[(Production DB<br/><i>Live business data</i>)]
 
-    subgraph "Development Landscape"
-        SIT1[(Feature-A DB<br/><i>Sales workflow fix</i><br/>Dev + TUT + FUT + SIT)]
-        SIT2[(Feature-B DB<br/><i>New pricing rules</i><br/>Dev + TUT + FUT + SIT)]
-        SIT3[(Feature-C DB<br/><i>Inventory changes</i><br/>Dev + TUT + FUT + SIT)]
+    subgraph DEV ["Development Landscape"]
+        SIT1[(Feature-A DB<br/><i>Sales workflow fix</i><br/>Dev + TUT + FUT + UAT + SIT)]
+        SIT2[(Feature-B DB<br/><i>New pricing rules</i><br/>Dev + TUT + FUT + UAT + SIT)]
+        SIT3[(Feature-C DB<br/><i>Inventory changes</i><br/>Dev + TUT + FUT + UAT + SIT)]
         SPRINT[(Sprint Release DB<br/><i>Merged features A+B+C</i><br/>Combined regression)]
     end
 
     PREPROD[(Pre-Production DB<br/><i>Fresh copy of production</i><br/>RGT + Load + Perf + PenSec)]
 
-    subgraph "Maintenance Landscape"
+    subgraph MAINT_LS ["Maintenance Landscape (PRIORITY)"]
         MAINT[(Maintenance DB<br/><i>Hot fixes & patches</i>)]
         HOTFIX[(HOTFIX_urgent-fix<br/><i>Critical bug fix</i>)]
     end
@@ -72,7 +72,7 @@ graph TB
     PROD -- "copy for<br/>maintenance" --> MAINT
     MAINT -- "copy for<br/>hot fix" --> HOTFIX
     HOTFIX -- "tested &<br/>verified" --> MAINT
-    MAINT -- "emergency<br/>patch" --> PROD
+    MAINT -. "PRIORITY:<br/>emergency patch" .-> PROD
 
     style PROD fill:#d32f2f,color:#fff,stroke:#b71c1c
     style PREPROD fill:#f57c00,color:#fff,stroke:#e65100
@@ -84,11 +84,11 @@ graph TB
     style HOTFIX fill:#7b1fa2,color:#fff,stroke:#4a148c
 ```
 
-**Development Landscape**: Each feature gets its own isolated database copy from production. Developers and AI agents run the full development cycle (coding, TUT, FUT, SIT) without polluting production. Once individual features pass SIT, they are merged into a **Sprint Release DB** for combined regression testing before transport to pre-production.
+**Maintenance Landscape (PRIORITY)**: Maintenance **always has priority** over development. Bug fixes, security patches, and urgent issues are time-critical -- they are tested on a maintenance copy and transported directly to production via the fast-track path. When a maintenance patch lands in production, the production baseline changes, which triggers a re-baseline cascade for all active development branches (see [Maintenance Priority & Re-Baseline](#maintenance-priority--re-baseline) below).
+
+**Development Landscape**: Each feature gets its own isolated database copy from production. Developers and AI agents run the full development cycle -- coding, TUT, FUT, **early UAT** (shift-left user feedback), and SIT -- without polluting production. Once individual features pass SIT, they are merged into a **Sprint Release DB** for combined regression testing before transport to pre-production.
 
 **Pre-Production**: Always a **fresh copy of production** -- not an accumulation of features. Sprint changes are transported into this clean baseline for final gate testing: RGT (regression), load testing, performance benchmarks, penetration/security testing, and infrastructure sizing validation.
-
-**Maintenance Landscape**: Hot fixes, security patches, and urgent bug fixes follow a separate fast-track path. Critical fixes are tested on a maintenance copy and applied directly to production with minimal delay.
 
 ### The Promotion Pipeline
 
@@ -178,20 +178,120 @@ graph LR
 
 This separation is essential for enterprise ERP operations:
 
-| Landscape | Purpose | Database Copies | Testing | Deployment Path |
-|-----------|---------|----------------|---------|-----------------|
-| **Development** | New features, enhancements, refactoring | SIT1_prod_feature-* | TUT + FUT + SIT per feature | Feature -> Sprint -> Pre-Prod -> Production |
-| **Sprint Release** | Merge & combined regression of features | SPRINT_release-* | Combined regression testing | Merged features -> Pre-Prod |
-| **Pre-Production** | Final gate (fresh production copy) | Fresh copy of production | RGT + Load + Perf + PenSec + Sizing | Transport -> Production |
-| **Maintenance** | Hot fixes, security patches, urgent bugs | HOTFIX_urgent-* | Targeted + smoke tests | Hotfix -> Maintenance -> Production (fast-track) |
+| Landscape | Priority | Purpose | Testing | Transport Path |
+|-----------|----------|---------|---------|----------------|
+| **Maintenance** | **HIGHEST** | Hot fixes, security patches, urgent bugs | Targeted + smoke tests | Hotfix -> Maintenance -> Production (fast-track) |
+| **Development** | Normal | New features, enhancements, refactoring | TUT + FUT + UAT + SIT per feature | Feature -> Sprint -> Pre-Prod -> Production |
+| **Sprint Release** | Normal | Merge & combined regression of features | Combined regression testing | Merged features -> Pre-Prod |
+| **Pre-Production** | Normal | Final gate (fresh production copy) | RGT + Load + Perf + PenSec + Sizing | Transport -> Production |
 
-**Development** follows the full pipeline: copy production to a feature branch DB, develop in isolation, run TUT/FUT/SIT. Once SIT passes, the feature merges into a sprint release DB for combined regression.
+### Maintenance Priority & Re-Baseline
 
-**Sprint Release** collects tested features for a sprint. Combined regression testing catches cross-feature conflicts before anything touches pre-production.
+Maintenance **always takes priority** over development. When a critical bug fix is transported to production, the production baseline changes. This creates a version mismatch -- all active development branches are now working against an outdated baseline.
 
-**Pre-Production** is always a **fresh copy of production**. Sprint changes are transported in, and the full gate suite runs: regression testing, load testing, performance benchmarks, penetration/security testing, and infrastructure sizing validation. This is the final quality gate before production.
+```mermaid
+sequenceDiagram
+    participant Maint as Maintenance Landscape
+    participant Prod as Production DB (v1.0)
+    participant FeatA as Feature-A DB (v1.0)
+    participant FeatB as Feature-B DB (v1.0)
 
-**Maintenance** follows a fast-track: copy production to maintenance landscape, apply the fix, run targeted tests plus smoke tests on critical paths, deploy directly. Urgent production issues can't wait for a full regression cycle.
+    Note over Maint: Urgent bug fix needed
+    Maint->>Prod: Transport bug fix (PRIORITY)
+    Note over Prod: Production is now v1.1
+
+    Note over FeatA,FeatB: Development branches still on v1.0!
+
+    Prod-->>FeatA: Re-baseline notification
+    Prod-->>FeatB: Re-baseline notification
+
+    alt Sales module fix — Feature-A works on Sales
+        Note over FeatA: Potential impact detected
+        FeatA->>FeatA: Pull v1.1 + regression test
+        Note over FeatA: Validate no conflicts
+    end
+
+    alt Finance module fix — Feature-B works on Inventory
+        Note over FeatB: Low impact (different module)
+        FeatB->>FeatB: Pull v1.1 + validate
+        Note over FeatB: Quick smoke test sufficient
+    end
+```
+
+**Impact assessment drives the response.** If the maintenance fix touches the same module a feature team is working on, a full regression test is required. If the fix is in a different module (e.g., finance fix while the team works on sales), a lighter validation is sufficient -- but still needs to be confirmed.
+
+### Transport Conflict Resolution
+
+When both the maintenance landscape and the development landscape are ready to transport to production at the same time, the **transport is blocked** until a code review confirms there are no conflicts:
+
+```mermaid
+graph TB
+    MAINT[Maintenance<br/>Bug fix tested & ready]
+    DEV[Development Sprint<br/>Features tested & ready]
+    BLOCK{Transport<br/>BLOCKED}
+    REVIEW[Code Review<br/>Check for conflicts]
+    COMBINED[(Combined Regression DB<br/>Bug fix + Features merged)]
+    RGT{Combined RGT<br/>Full regression suite}
+    PROD[(Production)]
+    REBASE[Other dev teams<br/>pull latest master]
+
+    MAINT --> BLOCK
+    DEV --> BLOCK
+    BLOCK --> REVIEW
+    REVIEW -- "no conflicts" --> COMBINED
+    REVIEW -- "conflicts found" --> FIX[Resolve conflicts<br/>Re-test individually]
+    FIX --> COMBINED
+    COMBINED --> RGT
+    RGT -- "pass" --> PROD
+    RGT -- "fail" --> FIX
+    PROD --> REBASE
+
+    style MAINT fill:#7b1fa2,color:#fff
+    style DEV fill:#1976d2,color:#fff
+    style BLOCK fill:#d32f2f,color:#fff
+    style REVIEW fill:#f57c00,color:#fff
+    style COMBINED fill:#00897b,color:#fff
+    style RGT fill:#00897b,color:#fff
+    style PROD fill:#d32f2f,color:#fff
+    style REBASE fill:#1976d2,color:#fff
+    style FIX fill:#f57c00,color:#fff
+```
+
+This combined transport approach saves significant time for development teams -- instead of transporting sequentially and re-baselining twice, both tested changes are merged, regression-tested together, and transported in a single controlled deployment. The remaining development teams then pull the latest production version to re-baseline their feature branches.
+
+### Shift-Left UAT: Early User Feedback in Feature Branches
+
+> **Avoiding the "tree swing" problem.** The famous project management analogy -- where every stakeholder interprets the same requirement differently -- shows why late UAT is costly. By the time users see the feature in pre-production, months of development may need reworking.
+
+The shift-left approach moves **User Acceptance Testing (UAT) into the feature branch** as early as possible. Rather than waiting until pre-production to discover that requirements were misunderstood, users validate functional requirements on the isolated feature database while development is still in progress:
+
+```mermaid
+graph LR
+    subgraph "Traditional (Late UAT)"
+        T_DEV[Develop] --> T_TEST[TUT+FUT+SIT] --> T_PREPROD[Pre-Production] --> T_UAT[UAT]
+        T_UAT -- "requirements<br/>misunderstood!" --> T_REWORK[Costly rework<br/>+ re-testing]
+    end
+
+    subgraph "Shift-Left (Early UAT)"
+        S_DEV[Develop] --> S_TUT[TUT+FUT]
+        S_TUT --> S_UAT[Early UAT<br/>in feature branch]
+        S_UAT -- "feedback<br/>incorporated" --> S_SIT[SIT]
+        S_SIT --> S_PREPROD[Pre-Production<br/>Final UAT confirmation]
+    end
+
+    style T_DEV fill:#757575,color:#fff
+    style T_TEST fill:#757575,color:#fff
+    style T_PREPROD fill:#757575,color:#fff
+    style T_UAT fill:#d32f2f,color:#fff
+    style T_REWORK fill:#d32f2f,color:#fff
+    style S_DEV fill:#1976d2,color:#fff
+    style S_TUT fill:#1976d2,color:#fff
+    style S_UAT fill:#388e3c,color:#fff
+    style S_SIT fill:#1976d2,color:#fff
+    style S_PREPROD fill:#388e3c,color:#fff
+```
+
+**Early UAT catches requirement misunderstandings before they compound.** A misunderstood requirement caught during feature development costs hours to fix. The same misunderstanding caught in pre-production costs weeks of rework, re-testing across all test levels, and delays to the entire sprint.
 
 All landscapes are AI-driven. The MCP server provides the tools for AI agents to copy databases, execute workflows, run tests, and validate results -- all through natural language.
 
@@ -635,14 +735,17 @@ odoo://product.product/fields         - Field metadata
 
 ### Our Expertise
 
-With a foundation in **SAP test architecture** and large-scale international ERP programs, BACON-AI brings production-grade reliability to AI automation. The shift-left testing strategies, landscape management, and regression gating in this project are proven patterns from real enterprise deployments -- now enhanced with AI-driven test execution.
+With a foundation in **SAP test architecture** and large-scale international ERP programs, BACON-AI founder Colin Bacon brings production-grade reliability to AI automation. The shift-left testing strategies, landscape management, regression gating, maintenance priority protocols, and transport conflict resolution in this project are proven patterns from real enterprise deployments -- now enhanced with AI-driven test execution.
 
 We don't just build demos -- we build systems that work in the real world.
+
+> **Coming Soon:** *"Agentic-Driven Testing: The Shift-Left Revolution for SAP Projects"* by Colin Bacon -- a comprehensive guide to the landscape architectures, V-Model test strategies, maintenance priority protocols, and AI-driven quality gates described in this project. From traditional SAP test management to agentic self-annealing test frameworks, this book details how to revolutionise SAP project delivery with AI.
 
 ### Get in Touch
 
 - **Website:** [bacon-ai.cloud](https://bacon-ai.cloud)
 - **Email:** [hello@bacon-ai.cloud](mailto:hello@bacon-ai.cloud)
+- **Book & Speaking Enquiries:** [hello@bacon-ai.cloud](mailto:hello@bacon-ai.cloud)
 - **Live Demos & Workshops:** Available on request
 
 ---
