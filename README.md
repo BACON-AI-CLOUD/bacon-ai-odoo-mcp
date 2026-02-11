@@ -41,23 +41,35 @@ Enterprise ERP changes are high-risk. A broken workflow in production means fail
 ```mermaid
 graph TB
     PROD[(Production DB<br/><i>Live business data</i>)]
-    PREPROD[(Pre-Production DB<br/><i>Regression testing</i>)]
-    SIT1[(SIT1_feature-A<br/><i>Sales workflow fix</i>)]
-    SIT2[(SIT1_feature-B<br/><i>New pricing rules</i>)]
-    SIT3[(SIT1_feature-C<br/><i>Inventory changes</i>)]
-    MAINT[(Maintenance DB<br/><i>Hot fixes & patches</i>)]
-    HOTFIX[(HOTFIX_urgent-fix<br/><i>Critical bug fix</i>)]
 
-    PROD -- "copy for<br/>feature testing" --> SIT1
-    PROD -- "copy for<br/>feature testing" --> SIT2
-    PROD -- "copy for<br/>feature testing" --> SIT3
+    subgraph "Development Landscape"
+        SIT1[(Feature-A DB<br/><i>Sales workflow fix</i><br/>Dev + TUT + FUT + SIT)]
+        SIT2[(Feature-B DB<br/><i>New pricing rules</i><br/>Dev + TUT + FUT + SIT)]
+        SIT3[(Feature-C DB<br/><i>Inventory changes</i><br/>Dev + TUT + FUT + SIT)]
+        SPRINT[(Sprint Release DB<br/><i>Merged features A+B+C</i><br/>Combined regression)]
+    end
+
+    PREPROD[(Pre-Production DB<br/><i>Fresh copy of production</i><br/>RGT + Load + Perf + PenSec)]
+
+    subgraph "Maintenance Landscape"
+        MAINT[(Maintenance DB<br/><i>Hot fixes & patches</i>)]
+        HOTFIX[(HOTFIX_urgent-fix<br/><i>Critical bug fix</i>)]
+    end
+
+    PROD -- "copy for<br/>feature branch" --> SIT1
+    PROD -- "copy for<br/>feature branch" --> SIT2
+    PROD -- "copy for<br/>feature branch" --> SIT3
+
+    SIT1 -- "SIT pass" --> SPRINT
+    SIT2 -- "SIT pass" --> SPRINT
+    SIT3 -- "SIT pass" --> SPRINT
+
+    PROD -- "fresh copy for<br/>final regression" --> PREPROD
+    SPRINT -- "transport<br/>sprint changes" --> PREPROD
+
+    PREPROD -- "all gates<br/>pass" --> PROD
+
     PROD -- "copy for<br/>maintenance" --> MAINT
-
-    SIT1 -- "SIT pass" --> PREPROD
-    SIT2 -- "SIT pass" --> PREPROD
-    SIT3 -- "SIT pass" --> PREPROD
-    PREPROD -- "regression<br/>pass" --> PROD
-
     MAINT -- "copy for<br/>hot fix" --> HOTFIX
     HOTFIX -- "tested &<br/>verified" --> MAINT
     MAINT -- "emergency<br/>patch" --> PROD
@@ -67,74 +79,97 @@ graph TB
     style SIT1 fill:#1976d2,color:#fff,stroke:#0d47a1
     style SIT2 fill:#1976d2,color:#fff,stroke:#0d47a1
     style SIT3 fill:#1976d2,color:#fff,stroke:#0d47a1
+    style SPRINT fill:#00897b,color:#fff,stroke:#00695c
     style MAINT fill:#7b1fa2,color:#fff,stroke:#4a148c
     style HOTFIX fill:#7b1fa2,color:#fff,stroke:#4a148c
 ```
 
-**Development Landscape** (left): Feature branches get isolated database copies. Developers and AI agents test freely without polluting production. Each feature runs the full SIT suite before promotion.
+**Development Landscape**: Each feature gets its own isolated database copy from production. Developers and AI agents run the full development cycle (coding, TUT, FUT, SIT) without polluting production. Once individual features pass SIT, they are merged into a **Sprint Release DB** for combined regression testing before transport to pre-production.
 
-**Maintenance Landscape** (right): Hot fixes, security patches, and urgent bug fixes follow a separate fast-track path. Critical fixes are tested on a maintenance copy and applied directly to production with minimal delay.
+**Pre-Production**: Always a **fresh copy of production** -- not an accumulation of features. Sprint changes are transported into this clean baseline for final gate testing: RGT (regression), load testing, performance benchmarks, penetration/security testing, and infrastructure sizing validation.
+
+**Maintenance Landscape**: Hot fixes, security patches, and urgent bug fixes follow a separate fast-track path. Critical fixes are tested on a maintenance copy and applied directly to production with minimal delay.
 
 ### The Promotion Pipeline
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer / AI Agent
-    participant SIT as SIT Database Copy
-    participant Tests as Test Suite (572 tests)
-    participant PreProd as Pre-Production
-    participant Regression as Regression Gate
-    participant Prod as Production
+    participant Feat as Feature Branch DB
+    participant Sprint as Sprint Release DB
+    participant Prod as Production DB
+    participant PreProd as Pre-Production DB
+    participant Prod2 as Production DB
 
-    Dev->>SIT: 1. Copy production DB
-    Note over SIT: SIT1_prod_feature-A_20260211
-    Dev->>SIT: 2. Develop & test feature
-    Note over SIT: Isolated - no production impact
-    Dev->>Tests: 3. Run SIT tests
-    Tests-->>Dev: 84 integration tests pass
-    Dev->>PreProd: 4. Promote feature
-    Note over PreProd: Merge with other tested features
-    PreProd->>Regression: 5. Full regression suite
-    Regression-->>PreProd: 572 tests pass
-    Note over Regression: All existing workflows verified
-    PreProd->>Prod: 6. Deploy to production
-    Note over Prod: Audited, confirmed, reversible
+    Dev->>Prod: 1. Copy production DB
+    Prod-->>Feat: SIT1_prod_feature-A
+    Dev->>Feat: 2. Develop feature
+    Note over Feat: Coding + TUT + FUT
+    Dev->>Feat: 3. Run SIT tests
+    Note over Feat: 84 integration tests pass
+    Feat->>Sprint: 4. Merge tested features
+    Note over Sprint: Features A + B + C combined
+    Dev->>Sprint: 5. Sprint regression tests
+    Note over Sprint: Catch cross-feature conflicts
+
+    Dev->>Prod: 6. Fresh copy of production
+    Prod-->>PreProd: Clean baseline
+    Sprint->>PreProd: 7. Transport sprint changes
+    Note over PreProd: RGT + Load + Perf + PenSec
+    Dev->>PreProd: 8. Final gate testing
+    Note over PreProd: 572 tests + sizing validation
+
+    PreProd->>Prod2: 9. Transport to production
+    Note over Prod2: Audited, confirmed, reversible
 ```
 
 ### Why Regression Testing is Critical
 
-When multiple features are developed in parallel, each passing its own SIT tests independently, **cross-feature conflicts only surface during regression testing**. A change to the sales workflow in Feature-A might break the inventory logic that Feature-B depends on. Without regression gating on the merged pre-production database, these defects reach production.
+When multiple features are developed in parallel, each passing its own SIT tests independently, **cross-feature conflicts only surface when features are merged**. A change to the sales workflow in Feature-A might break the inventory logic that Feature-B depends on. The two-stage regression approach catches this at two levels:
+
+1. **Sprint Regression** -- merged features tested together in a sprint release DB
+2. **Pre-Production Regression** -- sprint changes transported into a fresh production copy for final validation with load, performance, and security testing
 
 ```mermaid
 graph LR
     subgraph "Feature Testing (Isolated)"
-        FA[Feature A<br/>Sales fix<br/>SIT: PASS]
-        FB[Feature B<br/>Inventory change<br/>SIT: PASS]
-        FC[Feature C<br/>New pricing<br/>SIT: PASS]
+        FA[Feature A<br/>Sales fix<br/>TUT+FUT+SIT: PASS]
+        FB[Feature B<br/>Inventory change<br/>TUT+FUT+SIT: PASS]
+        FC[Feature C<br/>New pricing<br/>TUT+FUT+SIT: PASS]
     end
 
-    subgraph "Regression Testing (Merged)"
-        MERGED[Pre-Production<br/>A + B + C merged]
-        RGT{Regression<br/>572 tests}
+    subgraph "Sprint Regression"
+        SPRINT[Sprint Release DB<br/>A + B + C merged]
+        SRGT{Combined<br/>Regression}
+    end
+
+    subgraph "Pre-Production Gate"
+        PREPROD[Fresh Production Copy<br/>+ Sprint Transport]
+        PRGT{RGT + Load<br/>+ Perf + PenSec}
     end
 
     subgraph "Outcome"
-        PASS[All pass<br/>Deploy to production]
-        FAIL[Conflict detected<br/>Fix before deploying]
+        PASS[All gates pass<br/>Transport to production]
+        FAIL[Conflict detected<br/>Fix before transporting]
     end
 
-    FA --> MERGED
-    FB --> MERGED
-    FC --> MERGED
-    MERGED --> RGT
-    RGT -- "pass" --> PASS
-    RGT -- "fail" --> FAIL
+    FA --> SPRINT
+    FB --> SPRINT
+    FC --> SPRINT
+    SPRINT --> SRGT
+    SRGT -- "pass" --> PREPROD
+    SRGT -- "fail" --> FAIL
+    PREPROD --> PRGT
+    PRGT -- "pass" --> PASS
+    PRGT -- "fail" --> FAIL
 
     style FA fill:#1976d2,color:#fff
     style FB fill:#1976d2,color:#fff
     style FC fill:#1976d2,color:#fff
-    style MERGED fill:#f57c00,color:#fff
-    style RGT fill:#f57c00,color:#fff
+    style SPRINT fill:#00897b,color:#fff
+    style SRGT fill:#00897b,color:#fff
+    style PREPROD fill:#f57c00,color:#fff
+    style PRGT fill:#f57c00,color:#fff
     style PASS fill:#388e3c,color:#fff
     style FAIL fill:#d32f2f,color:#fff
 ```
@@ -145,14 +180,20 @@ This separation is essential for enterprise ERP operations:
 
 | Landscape | Purpose | Database Copies | Testing | Deployment Path |
 |-----------|---------|----------------|---------|-----------------|
-| **Development** | New features, enhancements, refactoring | SIT1_prod_feature-* | Full SIT + regression | Feature -> Pre-Prod -> Production |
+| **Development** | New features, enhancements, refactoring | SIT1_prod_feature-* | TUT + FUT + SIT per feature | Feature -> Sprint -> Pre-Prod -> Production |
+| **Sprint Release** | Merge & combined regression of features | SPRINT_release-* | Combined regression testing | Merged features -> Pre-Prod |
+| **Pre-Production** | Final gate (fresh production copy) | Fresh copy of production | RGT + Load + Perf + PenSec + Sizing | Transport -> Production |
 | **Maintenance** | Hot fixes, security patches, urgent bugs | HOTFIX_urgent-* | Targeted + smoke tests | Hotfix -> Maintenance -> Production (fast-track) |
 
-**Development** follows the full pipeline: copy production, develop in isolation, SIT test, promote to pre-production, run regression, deploy. This ensures new features don't break existing workflows.
+**Development** follows the full pipeline: copy production to a feature branch DB, develop in isolation, run TUT/FUT/SIT. Once SIT passes, the feature merges into a sprint release DB for combined regression.
+
+**Sprint Release** collects tested features for a sprint. Combined regression testing catches cross-feature conflicts before anything touches pre-production.
+
+**Pre-Production** is always a **fresh copy of production**. Sprint changes are transported in, and the full gate suite runs: regression testing, load testing, performance benchmarks, penetration/security testing, and infrastructure sizing validation. This is the final quality gate before production.
 
 **Maintenance** follows a fast-track: copy production to maintenance landscape, apply the fix, run targeted tests plus smoke tests on critical paths, deploy directly. Urgent production issues can't wait for a full regression cycle.
 
-Both landscapes are AI-driven. The MCP server provides the tools for AI agents to copy databases, execute workflows, run tests, and validate results -- all through natural language.
+All landscapes are AI-driven. The MCP server provides the tools for AI agents to copy databases, execute workflows, run tests, and validate results -- all through natural language.
 
 ### Data Migration & Cut-Over
 
@@ -450,13 +491,14 @@ All SIT tests run against a **real Odoo 19.0 instance** with actual XML-RPC call
 
 ### Regression Testing Strategy
 
-Every feature promotion triggers the **full 572-test regression suite** against the merged pre-production database. This catches cross-feature conflicts that individual SIT testing cannot detect.
+Testing follows a **two-stage regression approach** that mirrors the database promotion pipeline:
 
-| Gate | Tests Run | What It Catches |
-|------|-----------|-----------------|
-| **Feature SIT** | 84 integration tests | Feature-specific bugs against real data |
-| **Pre-Production Regression** | All 572 tests | Cross-feature conflicts, side effects |
-| **Production Smoke** | Critical path subset | Post-deployment verification |
+| Gate | Database | Tests Run | What It Catches |
+|------|----------|-----------|-----------------|
+| **Feature TUT+FUT+SIT** | Feature branch DB | 84 integration tests + unit tests | Feature-specific bugs against real data |
+| **Sprint Regression** | Sprint release DB (merged features) | All 572 tests | Cross-feature conflicts, side effects |
+| **Pre-Production RGT** | Fresh production copy + sprint transport | 572 tests + load + perf + PenSec | Regression, performance, security, sizing |
+| **Production Smoke** | Production | Critical path subset | Post-deployment verification |
 
 ---
 
