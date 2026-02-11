@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/bacon-ai-logo.png" alt="BACON-AI Logo" width="120">
+</p>
+
 # BACON-AI Odoo MCP Server
 
 **Orchestrating Intelligence for the Real World.**
